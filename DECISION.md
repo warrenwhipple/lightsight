@@ -34,6 +34,7 @@ Choose stack and boundaries for first build.
 
 **Decision**
 - Status - LEANING
+- Encoding - NOT_ENCODED
 - Choice - Headless TypeScript DES package plus browser visualizer
 - Confidence - TENTATIVE
 - Why - Best fit for simultaneous CLI/test iteration and visual feedback while keeping one language.
@@ -68,6 +69,7 @@ What should the earliest prototype prove?
 
 **Decision**
 - Status - DECIDED
+- Encoding - NOT_ENCODED
 - Choice - Frontier expansion duel with programmable remote bases
 - Confidence - SURE
 - Why - Combines antagonist pressure with delayed-control decisions; remote autonomy makes light-speed latency central.
@@ -110,6 +112,7 @@ How does the player control remote bases despite command delay?
 
 **Decision**
 - Status - DECIDED
+- Encoding - NOT_ENCODED
 - Choice - Policy plus small parameter set
 - Confidence - SURE
 - Why - Captures standing-order autonomy without full scripting or delayed micromanagement; preserve programmable systems as later possibility.
@@ -138,6 +141,7 @@ Which policy set should a base support first?
 
 **Decision**
 - Status - DECIDED
+- Encoding - NOT_ENCODED
 - Choice - Expand / Fortify / Scout
 - Confidence - SURE
 - Why - Smallest policy set worth trying; enough to test growth, safety, and information under delayed observation.
@@ -169,6 +173,7 @@ Should the home system use the same policy model as remote bases, or direct edit
 
 **Decision**
 - Status - LEANING
+- Encoding - NOT_ENCODED
 - Choice - Home uses editable order queue, remote bases use policies
 - Confidence - TENTATIVE
 - Why - The home system can make live decisions with current local information; remote bases need autonomy because home observes them late.
@@ -194,6 +199,7 @@ How strict should the first DES be about causality and observability?
 
 **Decision**
 - Status - LEANING
+- Encoding - NOT_ENCODED
 - Choice - Strict event simulation with explicit signal travel events
 - Confidence - TENTATIVE
 - Why - The mechanic depends on causality being correct and inspectable.
@@ -201,6 +207,13 @@ How strict should the first DES be about causality and observability?
 ## Immediate Prototype Scope
 
 What should exist before broader game design?
+
+**Criteria**
+- HIGH - Tests feel of stale observation and delayed control, not just code plumbing
+- HIGH - Headless CLI/test result plus minimal visual playback
+- HIGH - Uses decided loop: frontier duel, remote base policies, Expand/Fortify/Scout
+- HIGH - Small enough to throw away
+- HIGH - Does not require resolving all UI or economy design first
 
 **Options**
 - DES core, CLI scenarios, tests, minimal visualizer
@@ -210,40 +223,12 @@ What should exist before broader game design?
   - PRO - Faster subjective feel
   - CON - Repeats likely false-start pattern
 
+**Jobs**
+- TODO - Spike - Inform Immediate Prototype Scope: build disposable vertical slice from DECISION.md with fixed map, home queue assumption, one remote base, delayed policy update, AI pressure, deterministic DES, CLI event log, minimal visual playback; report whether Expand/Fortify/Scout creates meaningful delayed-control moments and note assumptions for unresolved home-control/time-model choices.
+
 **Decision**
 - Status - LEANING
+- Encoding - NOT_ENCODED
 - Choice - DES core, CLI scenarios, tests, minimal visualizer
 - Confidence - TENTATIVE
 - Why - User wants fresh start optimized for AI-assisted coding and avoiding previous false starts.
-
-## First Spike
-
-What should the first implementation spike try to learn?
-
-**Criteria**
-- HIGH - Tests feel of stale observation and delayed control, not just code plumbing
-- HIGH - Small enough to throw away
-- HIGH - Headless CLI/test result plus minimal visual playback
-- HIGH - Uses decided loop: frontier duel, remote base policies, Expand/Fortify/Scout
-- HIGH - Does not require resolving all UI or economy design first
-
-**Options**
-- Thin vertical slice: fixed map, home queue assumption, one remote base, delayed policy update, AI pressure
-  - PRO - Directly tests whether delayed remote autonomy creates interesting decisions
-  - PRO - Exercises DES, event log, CLI, and visualizer boundary
-  - CON - Requires small placeholder economy/conflict rules
-- Pure causality harness: send command 10 ly, observe ack 20 y later
-  - PRO - Fastest correctness proof
-  - CON - Does not answer feel/game-loop question
-- Visual-only mock of stale light cones and commands
-  - PRO - Fast subjective read
-  - CON - Repeats risk of visual toy detached from headless sim
-
-**Decision**
-- Status - LEANING
-- Choice - Thin vertical slice: fixed map, home queue assumption, one remote base, delayed policy update, AI pressure
-- Confidence - TENTATIVE
-- Why - Current decisions are sufficient for a disposable spike; unresolved home-control details can be assumptions.
-
-**Jobs**
-- TODO - Spike - Build disposable vertical slice with deterministic DES, CLI event log, and minimal visual playback; findings should report whether Expand/Fortify/Scout remote policies create meaningful delayed-control moments.
