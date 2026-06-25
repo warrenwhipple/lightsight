@@ -2,6 +2,8 @@
 
 Fresh start for a 2D star-field strategy prototype centered on finite-speed information and control.
 
+<!-- decision-mode: schema=0.2; reviewed=2026-06-25 -->
+
 **Criteria**
 - HIGH - AI-assisted iteration friendly: headless, deterministic, testable
 - HIGH - Light-speed delay is core mechanic, not presentation detail
@@ -224,7 +226,7 @@ What should exist before broader game design?
   - CON - Repeats likely false-start pattern
 
 **Jobs**
-- TODO - Spike - Inform Immediate Prototype Scope: build disposable vertical slice from DECISION.md with fixed map, home queue assumption, one remote base, delayed policy update, AI pressure, deterministic DES, CLI event log, minimal visual playback; report whether Expand/Fortify/Scout creates meaningful delayed-control moments and note assumptions for unresolved home-control/time-model choices.
+- TODO - Rehearsal - Snapshot DECISION.md and build disposable vertical slice of decided frontier: frontier duel, policy-based remote base, Expand/Fortify/Scout, deterministic DES, CLI event log, minimal visual playback; assume home queue and strict signal-event model for rehearsal only; report materialized decisions, assumptions, contradictions, and whether delayed-control moments feel meaningful.
 
 **Decision**
 - Status - LEANING
