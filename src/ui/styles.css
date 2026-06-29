@@ -1,0 +1,434 @@
+:root {
+  color-scheme: dark;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: #12110f;
+  color: #eee7cf;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  height: 100%;
+  overflow: hidden;
+  background: #12110f;
+}
+
+button {
+  font: inherit;
+}
+
+#app {
+  height: 100vh;
+  height: 100dvh;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  overflow: hidden;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 18px;
+  border-bottom: 1px solid #39352d;
+  background: #181713;
+}
+
+h1,
+h2,
+p {
+  margin: 0;
+}
+
+h1 {
+  font-size: 20px;
+  line-height: 1.1;
+  font-weight: 720;
+}
+
+h2 {
+  font-size: 14px;
+  line-height: 1.2;
+  font-weight: 720;
+}
+
+#subtitle,
+.sectionHeader span,
+.pendingLine {
+  color: #aaa494;
+  font-size: 12px;
+}
+
+.timeControls,
+.policyControls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.timeControls button,
+.policyControls button {
+  min-height: 34px;
+  border: 1px solid #4b453a;
+  border-radius: 6px;
+  color: #eee7cf;
+  background: #242119;
+  padding: 0 12px;
+  cursor: pointer;
+}
+
+.timeControls button:hover,
+.policyControls button:hover:not(:disabled) {
+  border-color: #e1b756;
+}
+
+.policyControls button.active {
+  color: #10100d;
+  background: #6fd08c;
+  border-color: #6fd08c;
+}
+
+.policyControls button.pending {
+  border-color: #60d6df;
+  box-shadow: inset 0 -3px 0 #60d6df;
+}
+
+.policyControls button:disabled {
+  cursor: not-allowed;
+  color: #706b60;
+  border-color: #39352d;
+  background: #1b1915;
+}
+
+.workspace {
+  min-height: 0;
+  height: 100%;
+  display: grid;
+  grid-template-columns: minmax(390px, 1fr) minmax(300px, 370px);
+  overflow: hidden;
+}
+
+.mapShell {
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: 1fr auto;
+  border-right: 1px solid #39352d;
+  overflow: hidden;
+}
+
+.mapStage {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+#map {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  display: block;
+}
+
+.starHitLayer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.starHit {
+  position: absolute;
+  width: 38px;
+  height: 38px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  transform: translate(-50%, -50%);
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.starHit:focus-visible {
+  outline: 2px solid #f28c55;
+  outline-offset: 2px;
+}
+
+.legend {
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  padding: 9px 14px;
+  border-top: 1px solid #39352d;
+  background: #181713;
+  color: #c8c0aa;
+  font-size: 12px;
+}
+
+.legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.legendDot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  display: inline-block;
+  border: 2px solid currentColor;
+}
+
+.legendDot.catalog {
+  color: #8d887b;
+  background: #181713;
+}
+
+.legendDot.scouted {
+  color: #e1b756;
+  background: #181713;
+}
+
+.legendDot.owned {
+  color: #6fd08c;
+  background: #6fd08c;
+}
+
+.legendLine {
+  width: 24px;
+  height: 0;
+  display: inline-block;
+  border-top: 2px solid currentColor;
+}
+
+.legendLine.policy {
+  color: #60d6df;
+  border-style: dashed;
+}
+
+.legendLine.scout {
+  color: #e1b756;
+  border-style: dotted;
+}
+
+.legendLine.colony {
+  color: #6fd08c;
+}
+
+.sidePanel {
+  min-height: 0;
+  display: grid;
+  grid-template-rows: minmax(174px, max-content) minmax(140px, 0.9fr) minmax(160px, 1.1fr);
+  overflow: hidden;
+  background: #151410;
+}
+
+.panel {
+  min-height: 0;
+  padding: 12px 14px;
+  border-bottom: 1px solid #39352d;
+  overflow: hidden;
+}
+
+.panel:not(.selectedPanel) {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.selectedPanel {
+  overflow: auto;
+}
+
+.sectionHeader {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+dl {
+  display: grid;
+  grid-template-columns: 82px 1fr;
+  gap: 7px 10px;
+  margin: 0 0 14px;
+  font-size: 13px;
+}
+
+dt {
+  color: #aaa494;
+}
+
+dd {
+  margin: 0;
+  color: #eee7cf;
+}
+
+.pendingLine {
+  min-height: 18px;
+  margin-top: 10px;
+}
+
+.knowledgeList {
+  display: grid;
+  align-content: start;
+  gap: 7px;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding-right: 2px;
+}
+
+.knowledgeRow {
+  width: 100%;
+  min-height: 38px;
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 10px;
+  align-items: center;
+  text-align: left;
+  color: #eee7cf;
+  background: #1d1b16;
+  border: 1px solid #343027;
+  border-left-width: 4px;
+  border-radius: 6px;
+  padding: 7px 9px;
+  cursor: pointer;
+}
+
+.knowledgeRow:hover,
+.knowledgeRow.selected {
+  border-color: #f28c55;
+}
+
+.knowledgeRow.catalog {
+  border-left-color: #8d887b;
+}
+
+.knowledgeRow.scouted {
+  border-left-color: #e1b756;
+}
+
+.knowledgeRow.owned {
+  border-left-color: #6fd08c;
+}
+
+.rowName {
+  font-weight: 680;
+}
+
+.rowState,
+.rowFresh {
+  color: #aaa494;
+  font-size: 12px;
+}
+
+.eventLog {
+  list-style: none;
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  min-height: 0;
+  margin: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 0;
+  font-size: 13px;
+}
+
+.eventLog li {
+  display: grid;
+  grid-template-columns: 48px 1fr;
+  gap: 8px;
+  padding: 8px 0 8px 10px;
+  border-left: 3px solid #8d887b;
+}
+
+.eventLog li.control {
+  border-left-color: #60d6df;
+}
+
+.eventLog li.mission {
+  border-left-color: #6fd08c;
+}
+
+.eventLog li.warning {
+  border-left-color: #ef6767;
+}
+
+.eventLog time {
+  color: #aaa494;
+  font-size: 12px;
+}
+
+@media (max-width: 700px) {
+  body {
+    height: auto;
+    overflow: auto;
+  }
+
+  #app {
+    height: auto;
+    min-height: 100vh;
+    min-height: 100dvh;
+    overflow: visible;
+  }
+
+  .topbar,
+  .workspace {
+    display: block;
+  }
+
+  .workspace {
+    height: auto;
+    overflow: visible;
+  }
+
+  .topbar {
+    padding: 12px;
+  }
+
+  .timeControls {
+    margin-top: 12px;
+  }
+
+  .mapShell {
+    border-right: 0;
+    overflow: visible;
+  }
+
+  .mapStage {
+    height: 56vh;
+    min-height: 320px;
+  }
+
+  #map {
+    min-height: 0;
+  }
+
+  .sidePanel {
+    display: block;
+    overflow: visible;
+  }
+
+  .panel {
+    overflow: auto;
+  }
+}
