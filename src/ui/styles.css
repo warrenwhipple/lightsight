@@ -228,6 +228,11 @@ h2 {
   border-style: dotted;
 }
 
+.legendLine.missile {
+  color: #ef6767;
+  border-style: dashed;
+}
+
 .legendLine.colony {
   color: #6fd08c;
 }
@@ -324,6 +329,10 @@ dd {
 
 .knowledgeRow.scouted {
   border-left-color: #e1b756;
+}
+
+.knowledgeRow.enemy {
+  border-left-color: #ef6767;
 }
 
 .knowledgeRow.owned {

@@ -6,6 +6,7 @@ const WORLD = { width: 900, height: 560 };
 let sim = createFrontierScenario();
 let selectedStarId: StarId = "sol";
 let playing = false;
+let autoPauseForVisibleEvent = false;
 let lastFrame = performance.now();
 
 const canvas = requireElement<HTMLCanvasElement>("map");
@@ -17,7 +18,6 @@ const context: CanvasRenderingContext2D = canvasContext;
 
 const playPause = requireElement<HTMLButtonElement>("playPause");
 const nextEvent = requireElement<HTMLButtonElement>("nextEvent");
-const stepYear = requireElement<HTMLButtonElement>("stepYear");
 const reset = requireElement<HTMLButtonElement>("reset");
 const selectedName = requireElement("selectedName");
 const selectedState = requireElement("selectedState");
@@ -31,24 +31,26 @@ const policyButtons = [...document.querySelectorAll<HTMLButtonElement>("[data-po
 
 playPause.addEventListener("click", () => {
   playing = !playing;
+  autoPauseForVisibleEvent = false;
   playPause.textContent = playing ? "Pause" : "Play";
   lastFrame = performance.now();
 });
 
 nextEvent.addEventListener("click", () => {
-  sim.runNextEvent();
-  render();
-});
-
-stepYear.addEventListener("click", () => {
-  sim.advanceTo(sim.now + 1);
-  render();
+  if (sim.nextEventTime === undefined) {
+    return;
+  }
+  autoPauseForVisibleEvent = true;
+  playing = true;
+  playPause.textContent = "Pause";
+  lastFrame = performance.now();
 });
 
 reset.addEventListener("click", () => {
   sim = createFrontierScenario();
   selectedStarId = "sol";
   playing = false;
+  autoPauseForVisibleEvent = false;
   playPause.textContent = "Play";
   render();
 });
@@ -103,7 +105,16 @@ render();
 function tick(frameTime: number): void {
   if (playing) {
     const elapsedSeconds = Math.min(0.08, (frameTime - lastFrame) / 1000);
-    sim.advanceTo(sim.now + elapsedSeconds * 2.4);
+    if (autoPauseForVisibleEvent) {
+      const result = sim.advanceToNextPlayerVisibleEvent("player", sim.now + elapsedSeconds * 2.4);
+      if (result.found || sim.nextEventTime === undefined) {
+        playing = false;
+        autoPauseForVisibleEvent = false;
+        playPause.textContent = "Play";
+      }
+    } else {
+      sim.advanceTo(sim.now + elapsedSeconds * 2.4);
+    }
     render();
   }
   lastFrame = frameTime;
@@ -142,14 +153,14 @@ function drawMap(view: SimView): void {
     const from = starsById.get(mission.fromStarId);
     const to = starsById.get(mission.toStarId);
     if (from && to) {
-      drawTrace(toScreen(from), toScreen(to), progress(view.now, mission.launchedAt, mission.arrivesAt), mission.kind);
+      drawTrace(toScreen(from), toScreen(to), mission.kind, toScreen(mission));
     }
   }
   for (const signal of view.signals) {
     const from = starsById.get(signal.fromStarId);
     const to = starsById.get(signal.toStarId);
     if (from && to && signal.payload.kind === "setPolicy") {
-      drawTrace(toScreen(from), toScreen(to), progress(view.now, signal.sentAt, signal.arrivesAt), "policy");
+      drawTrace(toScreen(from), toScreen(to), "policy", pointOnLine(toScreen(from), toScreen(to), progress(view.now, signal.sentAt, signal.arrivesAt)));
     }
   }
   for (const star of view.stars) {
@@ -183,43 +194,45 @@ function drawGrid(width: number, height: number): void {
 function drawTrace(
   from: { x: number; y: number },
   to: { x: number; y: number },
-  ratio: number,
-  kind: "policy" | "scout" | "colonize"
+  kind: "policy" | "scout" | "missile" | "colonize",
+  observedPoint: { x: number; y: number }
 ): void {
   const palette = {
     policy: "#60d6df",
     scout: "#e0b84d",
+    missile: "#ef6767",
     colonize: "#6fd08c"
   };
   context.save();
   context.strokeStyle = palette[kind];
   context.globalAlpha = kind === "policy" ? 0.74 : 0.64;
-  context.lineWidth = kind === "policy" ? 2 : 3;
-  context.setLineDash(kind === "policy" ? [8, 8] : kind === "scout" ? [3, 9] : []);
+  context.lineWidth = kind === "policy" ? 2 : kind === "missile" ? 2.5 : 3;
+  context.setLineDash(kind === "policy" ? [8, 8] : kind === "scout" ? [3, 9] : kind === "missile" ? [9, 4] : []);
   context.beginPath();
   context.moveTo(from.x, from.y);
   context.lineTo(to.x, to.y);
   context.stroke();
   context.setLineDash([]);
-  const x = from.x + (to.x - from.x) * ratio;
-  const y = from.y + (to.y - from.y) * ratio;
   context.fillStyle = palette[kind];
   context.beginPath();
   if (kind === "colonize") {
-    context.rect(x - 4, y - 4, 8, 8);
+    context.rect(observedPoint.x - 4, observedPoint.y - 4, 8, 8);
   } else {
-    context.arc(x, y, kind === "policy" ? 4 : 5, 0, Math.PI * 2);
+    context.arc(observedPoint.x, observedPoint.y, kind === "policy" ? 4 : 5, 0, Math.PI * 2);
   }
   context.fill();
   context.restore();
 }
 
 function drawStar(star: StarKnowledge, point: { x: number; y: number }, selected: boolean): void {
-  const stateColor = {
-    "catalog-only": "#8d887b",
-    scouted: "#e1b756",
-    owned: "#6fd08c"
-  }[star.state];
+  const stateColor =
+    star.knownOwner === "rival"
+      ? "#ef6767"
+      : {
+          "catalog-only": "#8d887b",
+          scouted: "#e1b756",
+          owned: "#6fd08c"
+        }[star.state];
   context.save();
   context.shadowColor = selected ? "#f28c55" : stateColor;
   context.shadowBlur = selected ? 18 : star.state === "owned" ? 10 : 0;
@@ -263,8 +276,10 @@ function renderSelected(view: SimView): void {
   const facts = [
     ["Policy", selected.knownPolicy ?? "unknown"],
     ["Freshness", freshnessLabel(selected, view.now)],
-    ["Source", selected.source ?? "catalog"],
+    ["Source", selected.source ?? "unknown"],
+    ["Owner", selected.knownOwner ?? "unknown"],
     ["Fort", selected.knownFortification === undefined ? "unknown" : String(selected.knownFortification)],
+    ["Scouts", scoutLabel(selected)],
     ["Action", actionForSelected(view, selected.id)]
   ];
   for (const [label, value] of facts) {
@@ -312,7 +327,7 @@ function renderKnowledge(view: SimView): void {
       `;
     }
 
-    row.className = `knowledgeRow ${star.state === "catalog-only" ? "catalog" : star.state}`;
+    row.className = `knowledgeRow ${star.knownOwner === "rival" ? "enemy" : star.state === "catalog-only" ? "catalog" : star.state}`;
     row.classList.toggle("selected", star.id === selectedStarId);
     row.setAttribute("aria-label", `Select ${star.name}`);
     row.querySelector(".rowName")!.textContent = star.name;
@@ -340,7 +355,7 @@ function renderLog(view: SimView): void {
 function actionForSelected(view: SimView, starId: StarId): string {
   const mission = view.missions.find((candidate) => candidate.fromStarId === starId);
   if (mission) {
-    return `${mission.kind} to ${starName(view, mission.toStarId)} arrives in ${formatYears(mission.arrivesAt - view.now)}`;
+    return `${missionLabel(mission.kind)} telemetry to ${starName(view, mission.toStarId)} observed ${formatYears(view.now - mission.observedAt)} ago`;
   }
   const event = view.queuePreview.find((candidate) => candidate.kind === "policyEvaluates" && candidate.starId === starId);
   return event ? `next policy check in ${formatYears(event.time - view.now)}` : "idle";
@@ -425,19 +440,47 @@ function progress(now: number, start: number, end: number): number {
   return Math.max(0, Math.min(1, (now - start) / (end - start)));
 }
 
+function pointOnLine(from: { x: number; y: number }, to: { x: number; y: number }, ratio: number): { x: number; y: number } {
+  return {
+    x: from.x + (to.x - from.x) * ratio,
+    y: from.y + (to.y - from.y) * ratio
+  };
+}
+
 function labelForState(star: StarKnowledge): string {
   if (star.state === "catalog-only") {
-    return "Catalog";
+    return "Unknown";
+  }
+  if (star.knownOwner === "rival") {
+    return "Enemy base";
   }
   return star.state === "owned" ? "Owned" : "Scouted";
 }
 
 function freshnessLabel(star: StarKnowledge, now: number): string {
   if (star.observedAt === undefined || star.receivedAt === undefined) {
-    return "catalog only";
+    return "unknown";
   }
   const age = Math.max(0, now - star.observedAt);
   return age < 0.1 ? "fresh" : `${age.toFixed(1)}y stale`;
+}
+
+function scoutLabel(star: StarKnowledge): string {
+  const scouts = star.knownScoutOwners ?? [];
+  if (scouts.length === 0) {
+    return "unknown";
+  }
+  return scouts.join(", ");
+}
+
+function missionLabel(kind: "scout" | "missile" | "colonize"): string {
+  if (kind === "missile") {
+    return "missile";
+  }
+  if (kind === "colonize") {
+    return "expansion ship";
+  }
+  return "scout";
 }
 
 function starName(view: SimView, starId: StarId): string {

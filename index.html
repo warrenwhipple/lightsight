@@ -11,12 +11,11 @@
       <header class="topbar">
         <div>
           <h1>Light Sight</h1>
-          <p id="subtitle">Frontier control prototype</p>
+          <p id="subtitle">Inert base rehearsal</p>
         </div>
         <div class="timeControls" aria-label="Simulation time controls">
           <button id="playPause" type="button">Play</button>
           <button id="nextEvent" type="button">Next event</button>
-          <button id="stepYear" type="button">+1y</button>
           <button id="reset" type="button">Reset</button>
         </div>
       </header>
@@ -28,12 +27,13 @@
             <div id="starHitLayer" class="starHitLayer" aria-label="Selectable stars"></div>
           </div>
           <div class="legend" aria-label="Map legend">
-            <span><i class="legendDot catalog"></i>Catalog</span>
+            <span><i class="legendDot catalog"></i>Unknown</span>
             <span><i class="legendDot scouted"></i>Scouted</span>
             <span><i class="legendDot owned"></i>Owned</span>
             <span><i class="legendLine policy"></i>Policy signal</span>
             <span><i class="legendLine scout"></i>Scout</span>
-            <span><i class="legendLine colony"></i>Colony</span>
+            <span><i class="legendLine missile"></i>Missile</span>
+            <span><i class="legendLine colony"></i>Expansion</span>
           </div>
         </section>
 
@@ -46,7 +46,7 @@
             <dl id="selectedFacts"></dl>
             <div class="policyControls" aria-label="Policy controls">
               <button data-policy="Expand" type="button">Expand</button>
-              <button data-policy="Fortify" type="button">Fortify</button>
+              <button data-policy="Attack" type="button">Attack</button>
               <button data-policy="Scout" type="button">Scout</button>
             </div>
             <p id="pendingPolicy" class="pendingLine"></p>
@@ -71,6 +71,6 @@
       </main>
     </div>
 
-    <script type="module" src="./dist/ui/app.js?v=v0-baseline"></script>
+    <script type="module" src="./dist/ui/app.js?v=r2-telemetry"></script>
   </body>
 </html>

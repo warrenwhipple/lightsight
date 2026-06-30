@@ -5,6 +5,7 @@ import type {
   KnowledgeCache,
   LogEntry,
   MissionKind,
+  MissionTelemetry,
   MissionTrace,
   ObserverId,
   Owner,
@@ -21,13 +22,15 @@ import type {
 } from "./types.js";
 
 const SIGNAL_SPEED = 88;
-const SHIP_SPEED = 56;
+const SCOUT_SPEED = SIGNAL_SPEED * 0.5;
+const MISSILE_SPEED = SIGNAL_SPEED * 0.5;
+const EXPANSION_SPEED = SIGNAL_SPEED * 0.25;
 const HOME_STAR_ID: StarId = "sol";
 const PLAYER: ObserverId = "player";
 const POLICY_DURATIONS: Record<Policy, number> = {
-  Expand: 5,
-  Fortify: 3,
-  Scout: 4
+  Scout: 4,
+  Attack: 3,
+  Expand: 5
 };
 
 interface SimState {
@@ -36,6 +39,7 @@ interface SimState {
   queue: EventQueue;
   signals: SignalEnvelope[];
   missions: MissionTrace[];
+  completedMissions: CompletedMissionTrace[];
   pendingPolicyCommands: PendingPolicyCommand[];
   knowledge: Record<ObserverId, KnowledgeCache>;
   log: LogEntry[];
@@ -46,6 +50,11 @@ interface SimState {
     command: number;
     log: number;
   };
+}
+
+interface CompletedMissionTrace {
+  mission: MissionTrace;
+  reportArrivesAt: number;
 }
 
 export class LightSightSim {
@@ -125,6 +134,38 @@ export class LightSightSim {
     return event;
   }
 
+  advanceToNextPlayerVisibleEvent(
+    observerId: ObserverId,
+    maxTime = Number.POSITIVE_INFINITY
+  ): { found: boolean; event?: ScheduledEvent } {
+    if (maxTime < this.state.now) {
+      throw new Error("Simulation time cannot move backward");
+    }
+
+    while (true) {
+      const next = this.state.queue.peekNext();
+      if (!next) {
+        if (Number.isFinite(maxTime)) {
+          this.state.now = maxTime;
+        }
+        return { found: false };
+      }
+      if (next.time > maxTime) {
+        this.state.now = maxTime;
+        return { found: false };
+      }
+
+      const before = this.playerVisibleFingerprint(observerId);
+      const event = this.runNextEvent();
+      if (!event) {
+        return { found: false };
+      }
+      if (this.playerVisibleFingerprint(observerId) !== before) {
+        return { found: true, event };
+      }
+    }
+  }
+
   getView(observerId: ObserverId): SimView {
     const knowledge = this.state.knowledge[observerId];
     return {
@@ -132,7 +173,7 @@ export class LightSightSim {
       homeStarId: knowledge.homeStarId,
       stars: Object.values(knowledge.stars).map((star) => ({ ...star })),
       signals: this.state.signals.map((signal) => structuredClone(signal)),
-      missions: this.state.missions.map((mission) => ({ ...mission })),
+      missions: this.buildMissionTelemetry(knowledge),
       pendingPolicyCommands: this.state.pendingPolicyCommands.map((command) => ({ ...command })),
       eventLog: this.state.log.slice(-80).map((entry) => ({ ...entry })),
       queuePreview: this.state.queue.snapshot(10).map((event) => ({ ...event }))
@@ -145,6 +186,15 @@ export class LightSightSim {
 
   collectQueuedEventKinds(): EventKind[] {
     return [...new Set(this.state.queue.snapshot(200).map((event) => event.kind))];
+  }
+
+  private playerVisibleFingerprint(observerId: ObserverId): string {
+    const view = this.getView(observerId);
+    return JSON.stringify({
+      stars: view.stars,
+      pendingPolicyCommands: view.pendingPolicyCommands,
+      eventLog: view.eventLog
+    });
   }
 
   private handleEvent(event: ScheduledEvent): void {
@@ -197,11 +247,22 @@ export class LightSightSim {
 
     this.deliverReport(PLAYER, payload.report, this.state.now);
     const subject = this.state.knowledge[PLAYER].stars[payload.report.subjectId];
+    if (payload.report.logText) {
+      this.addLog(payload.report.logText, payload.report.logTone ?? "mission");
+    }
     this.addLog(`${subject.name} report received; observed ${formatYears(this.state.now - payload.report.observedAt)} ago.`, "info");
   }
 
   private handlePolicyEvaluates(starId: StarId): void {
     const star = this.requireStar(starId);
+    if (star.owner === "rival" && star.inertFortifyInterval && star.inertFortifyCap !== undefined) {
+      if (star.fortification < star.inertFortifyCap) {
+        star.fortification += 1;
+      }
+      this.schedulePolicyEvaluation(star.id, this.state.now + star.inertFortifyInterval, "ready");
+      return;
+    }
+
     if (!star.owner || !star.policy) {
       return;
     }
@@ -216,21 +277,13 @@ export class LightSightSim {
 
     const policy = star.policy;
     const duration = POLICY_DURATIONS[policy];
-    if (policy === "Fortify") {
-      star.currentAction = {
-        kind: "fortify",
-        policyAtStart: policy,
-        startedAt: this.state.now,
-        completesAt: this.state.now + duration,
-        label: "building fortifications"
-      };
-      this.schedulePolicyEvaluation(star.id, star.currentAction.completesAt, "ready");
-      this.addVisibleLocalLog(star, `${star.name} starts fortifying; next policy check at t=${formatTime(star.currentAction.completesAt)}.`);
-      return;
-    }
-
-    const missionKind: MissionKind = policy === "Scout" ? "scout" : "colonize";
-    const targetId = missionKind === "scout" ? this.chooseScoutTarget(star) : this.chooseColonizeTarget(star);
+    const missionKind: MissionKind = policy === "Scout" ? "scout" : policy === "Attack" ? "missile" : "colonize";
+    const targetId =
+      missionKind === "scout"
+        ? this.chooseScoutTarget(star)
+        : missionKind === "missile"
+          ? this.chooseMissileTarget(star)
+          : this.chooseColonizeTarget(star);
     if (!targetId) {
       star.currentAction = this.makeCooldown(policy, this.state.now + 2, "no viable target");
       this.schedulePolicyEvaluation(star.id, star.currentAction.completesAt, "ready");
@@ -254,20 +307,51 @@ export class LightSightSim {
     }
 
     if (mission.kind === "scout") {
-      this.sendReportToHome(mission.toStarId, "scout mission");
-      this.addVisibleLocalLog(this.requireStar(mission.fromStarId), `${this.requireStar(mission.toStarId).name} scout arrives; report is now in flight.`);
+      const target = this.requireStar(mission.toStarId);
+      if (!target.owner) {
+        target.orbitingScouts = addUniqueOwner(target.orbitingScouts, mission.owner);
+      }
+      const outcome = target.owner && target.owner !== mission.owner ? "is destroyed after relaying a snapshot" : "enters orbit and relays a report";
+      const reportArrivesAt = this.sendReportToHome(mission.toStarId, "scout mission", `${target.name} scout ${outcome}.`);
+      this.rememberCompletedMission(mission, reportArrivesAt);
+      return;
+    }
+
+    if (mission.kind === "missile") {
+      const target = this.requireStar(mission.toStarId);
+      target.orbitingScouts = (target.orbitingScouts ?? []).filter((owner) => owner === mission.owner);
+      if (target.owner && target.owner !== mission.owner && target.fortification > 0) {
+        target.fortification -= 1;
+        if (target.fortification <= 0) {
+          target.owner = undefined;
+          target.policy = undefined;
+          target.currentAction = undefined;
+          target.fortification = 0;
+        }
+      }
+      if (mission.owner === "player") {
+        const reportArrivesAt = this.sendReportToHome(target.id, "missile strike", `${target.name} missile impact resolved.`, "warning");
+        this.rememberCompletedMission(mission, reportArrivesAt);
+      }
       return;
     }
 
     const target = this.requireStar(mission.toStarId);
+    let logText: string;
+    let logTone: LogEntry["tone"] = "mission";
     if (!target.owner) {
       target.owner = mission.owner;
       target.policy = "Scout";
       target.fortification = 0;
+      target.orbitingScouts = (target.orbitingScouts ?? []).filter((owner) => owner !== mission.owner);
       this.schedulePolicyEvaluation(target.id, this.state.now + 1, "newColony");
-      this.addVisibleLocalLog(this.requireStar(mission.fromStarId), `${target.name} colony founded; first report is in flight.`);
+      logText = `${target.name} colony founded.`;
+    } else {
+      logText = `${target.name} expansion blocked by an existing starbase.`;
+      logTone = "warning";
     }
-    this.sendReportToHome(target.id, "colony mission");
+    const reportArrivesAt = this.sendReportToHome(target.id, "colony mission", logText, logTone);
+    this.rememberCompletedMission(mission, reportArrivesAt);
   }
 
   private completeCurrentAction(star: StarTruth): void {
@@ -310,7 +394,7 @@ export class LightSightSim {
       fromStarId,
       toStarId,
       launchedAt,
-      arrivesAt: launchedAt + this.travelDelay(fromStarId, toStarId)
+      arrivesAt: launchedAt + this.travelDelay(fromStarId, toStarId, kind)
     };
     this.state.missions.push(mission);
     this.state.queue.enqueue({
@@ -319,7 +403,7 @@ export class LightSightSim {
       time: mission.arrivesAt,
       missionId: mission.id
     });
-    this.addVisibleLocalLog(this.requireStar(fromStarId), `${this.requireStar(fromStarId).name} launches ${kind} mission to ${this.requireStar(toStarId).name}.`, "mission");
+    this.addVisibleLocalLog(this.requireStar(fromStarId), `${this.requireStar(fromStarId).name} launches ${missionLabel(kind)} to ${this.requireStar(toStarId).name}.`, "mission");
     return mission;
   }
 
@@ -333,16 +417,22 @@ export class LightSightSim {
     });
   }
 
-  private sendReportToHome(starId: StarId, source: string): void {
+  private sendReportToHome(starId: StarId, source: string, logText?: string, logTone?: LogEntry["tone"]): number {
     const report = this.buildReport(starId, source);
+    report.logText = logText;
+    report.logTone = logTone;
     if (starId === HOME_STAR_ID) {
       this.deliverReport(PLAYER, report, this.state.now);
-      return;
+      if (logText) {
+        this.addLog(logText, logTone ?? "mission");
+      }
+      return this.state.now;
     }
-    this.scheduleSignal(starId, HOME_STAR_ID, {
+    const signal = this.scheduleSignal(starId, HOME_STAR_ID, {
       kind: "report",
       report
     });
+    return signal.arrivesAt;
   }
 
   private deliverPolicyAck(observerId: ObserverId, commandId: string, starId: StarId, policy: Policy, effectiveAt: number): void {
@@ -367,6 +457,7 @@ export class LightSightSim {
     star.knownOwner = snapshot.owner;
     star.knownPolicy = snapshot.owner === observerId ? snapshot.policy : undefined;
     star.knownFortification = snapshot.fortification;
+    star.knownScoutOwners = snapshot.scoutOwners ? [...snapshot.scoutOwners] : undefined;
     star.observedAt = report.observedAt;
     star.receivedAt = receivedAt;
     star.source = report.source;
@@ -381,13 +472,96 @@ export class LightSightSim {
       y: star.y,
       owner: star.owner,
       policy: star.policy,
-      fortification: star.fortification
+      fortification: star.fortification,
+      scoutOwners: star.orbitingScouts ? [...star.orbitingScouts] : undefined
     };
     return {
       subjectId: star.id,
       source,
       observedAt: this.state.now,
       snapshot
+    };
+  }
+
+  private rememberCompletedMission(mission: MissionTrace, reportArrivesAt: number): void {
+    if (mission.owner !== "player" || reportArrivesAt <= this.state.now) {
+      return;
+    }
+    this.state.completedMissions.push({
+      mission: { ...mission },
+      reportArrivesAt
+    });
+  }
+
+  private buildMissionTelemetry(knowledge: KnowledgeCache): MissionTelemetry[] {
+    const active = this.state.missions
+      .filter((mission) => isMissionVisibleTo(knowledge, mission))
+      .map((mission) => this.telemetryForMission(mission, mission.arrivesAt));
+    const completed = this.state.completedMissions
+      .filter(({ reportArrivesAt }) => this.state.now < reportArrivesAt)
+      .filter(({ mission }) => isMissionVisibleTo(knowledge, mission))
+      .map(({ mission }) => this.telemetryForMission(mission, mission.arrivesAt));
+    return [...active, ...completed].filter((mission): mission is MissionTelemetry => Boolean(mission));
+  }
+
+  private telemetryForMission(mission: MissionTrace, maxObservedAt: number): MissionTelemetry | undefined {
+    const observedAt = this.latestReceivedMissionEmissionAt(mission, Math.min(maxObservedAt, mission.arrivesAt));
+    if (observedAt === undefined) {
+      return undefined;
+    }
+    return {
+      ...mission,
+      observedAt,
+      receivedAt: this.state.now,
+      ...this.missionPositionAt(mission, observedAt)
+    };
+  }
+
+  private latestReceivedMissionEmissionAt(mission: MissionTrace, maxObservedAt: number): number | undefined {
+    if (this.state.now < mission.launchedAt) {
+      return undefined;
+    }
+
+    const upper = Math.max(mission.launchedAt, Math.min(this.state.now, maxObservedAt));
+    if (!this.hasReceivedMissionEmission(mission, mission.launchedAt)) {
+      return undefined;
+    }
+    if (this.hasReceivedMissionEmission(mission, upper)) {
+      return upper;
+    }
+
+    let low = mission.launchedAt;
+    let high = upper;
+    for (let index = 0; index < 32; index += 1) {
+      const middle = (low + high) / 2;
+      if (this.hasReceivedMissionEmission(mission, middle)) {
+        low = middle;
+      } else {
+        high = middle;
+      }
+    }
+    return low;
+  }
+
+  private hasReceivedMissionEmission(mission: MissionTrace, sentAt: number): boolean {
+    return sentAt + this.missionSignalDelayToNearestPlayerBase(mission, sentAt) <= this.state.now + 0.000001;
+  }
+
+  private missionSignalDelayToNearestPlayerBase(mission: MissionTrace, sentAt: number): number {
+    const position = this.missionPositionAt(mission, sentAt);
+    const receivers = Object.values(this.state.stars).filter((star) => star.owner === "player");
+    const fallback = this.requireStar(HOME_STAR_ID);
+    const nearest = nearestStarId(position, receivers.length > 0 ? receivers : [fallback]);
+    return distance(position, this.requireStar(nearest ?? HOME_STAR_ID)) / SIGNAL_SPEED;
+  }
+
+  private missionPositionAt(mission: MissionTrace, time: number): { x: number; y: number } {
+    const from = this.requireStar(mission.fromStarId);
+    const to = this.requireStar(mission.toStarId);
+    const ratio = progress(time, mission.launchedAt, mission.arrivesAt);
+    return {
+      x: from.x + (to.x - from.x) * ratio,
+      y: from.y + (to.y - from.y) * ratio
     };
   }
 
@@ -399,9 +573,24 @@ export class LightSightSim {
     return nearestStarId(star, candidates);
   }
 
+  private chooseMissileTarget(star: StarTruth): StarId | undefined {
+    const cache = this.state.knowledge[PLAYER];
+    const candidates = Object.values(cache.stars).filter((known) => {
+      return (
+        known.id !== star.id &&
+        known.knownOwner !== undefined &&
+        known.knownOwner !== star.owner &&
+        (known.knownFortification ?? 0) > 0 &&
+        !this.hasMissionTo(known.id, "missile", star.owner)
+      );
+    });
+    return nearestStarId(star, candidates);
+  }
+
   private chooseColonizeTarget(star: StarTruth): StarId | undefined {
-    const candidates = Object.values(this.state.stars).filter((candidate) => {
-      return candidate.id !== star.id && !candidate.owner && !this.hasMissionTo(candidate.id, "colonize", star.owner);
+    const cache = this.state.knowledge[PLAYER];
+    const candidates = Object.values(cache.stars).filter((known) => {
+      return known.id !== star.id && known.state === "scouted" && !known.knownOwner && !this.hasMissionTo(known.id, "colonize", star.owner);
     });
     return nearestStarId(star, candidates);
   }
@@ -439,8 +628,9 @@ export class LightSightSim {
     return distance(this.requireStar(fromStarId), this.requireStar(toStarId)) / SIGNAL_SPEED;
   }
 
-  private travelDelay(fromStarId: StarId, toStarId: StarId): number {
-    return distance(this.requireStar(fromStarId), this.requireStar(toStarId)) / SHIP_SPEED;
+  private travelDelay(fromStarId: StarId, toStarId: StarId, kind: MissionKind): number {
+    const speed = kind === "colonize" ? EXPANSION_SPEED : kind === "missile" ? MISSILE_SPEED : SCOUT_SPEED;
+    return distance(this.requireStar(fromStarId), this.requireStar(toStarId)) / speed;
   }
 
   private requireStar(starId: StarId): StarTruth {
@@ -463,9 +653,9 @@ export function createFrontierScenario(): LightSightSim {
     sol: { id: "sol", name: "Sol", x: 128, y: 284, owner: "player", policy: "Expand", fortification: 1 },
     vega: { id: "vega", name: "Vega", x: 390, y: 150, owner: "player", policy: "Scout", fortification: 0 },
     aster: { id: "aster", name: "Aster", x: 310, y: 424, fortification: 0 },
-    lyra: { id: "lyra", name: "Lyra", x: 612, y: 228, fortification: 0 },
-    mira: { id: "mira", name: "Mira", x: 688, y: 418, fortification: 0 },
-    umbra: { id: "umbra", name: "Umbra", x: 778, y: 132, owner: "rival", policy: "Expand", fortification: 2 }
+    lyra: { id: "lyra", name: "Lyra", x: 612, y: 228, owner: "rival", fortification: 1, inertFortifyInterval: 9, inertFortifyCap: 3 },
+    mira: { id: "mira", name: "Mira", x: 688, y: 418, owner: "rival", fortification: 2, inertFortifyInterval: 10, inertFortifyCap: 3 },
+    umbra: { id: "umbra", name: "Umbra", x: 778, y: 132, owner: "rival", fortification: 5, inertFortifyInterval: 2.5, inertFortifyCap: 8 }
   };
 
   const knowledge: KnowledgeCache = {
@@ -491,6 +681,7 @@ export function createFrontierScenario(): LightSightSim {
     queue: new EventQueue(),
     signals: [],
     missions: [],
+    completedMissions: [],
     pendingPolicyCommands: [],
     knowledge: { player: knowledge },
     log: [],
@@ -535,16 +726,28 @@ export function createFrontierScenario(): LightSightSim {
   state.log.push({
     id: "log-0",
     time: 0,
-    text: "Home cache loaded: catalog sky plus stale Vega and Aster reports.",
+    text: "Home cache loaded: unknown sky plus stale Vega and Aster reports.",
     tone: "info"
   });
   state.queue.enqueue({ id: "event-0a", kind: "policyEvaluates", time: 0, starId: "sol", reason: "initial" });
   state.queue.enqueue({ id: "event-0b", kind: "policyEvaluates", time: 0, starId: "vega", reason: "initial" });
+  state.queue.enqueue({ id: "event-0c", kind: "policyEvaluates", time: 2.5, starId: "umbra", reason: "initial" });
+  state.queue.enqueue({ id: "event-0d", kind: "policyEvaluates", time: 9, starId: "lyra", reason: "initial" });
+  state.queue.enqueue({ id: "event-0e", kind: "policyEvaluates", time: 10, starId: "mira", reason: "initial" });
   sim.advanceTo(0);
   return sim;
 }
 
-function nearestStarId(origin: StarTruth, candidates: Array<{ id: StarId; x: number; y: number }>): StarId | undefined {
+export function isMissionVisibleTo(knowledge: KnowledgeCache, mission: MissionTrace): boolean {
+  if (mission.owner === knowledge.observerId) {
+    return true;
+  }
+  const from = knowledge.stars[mission.fromStarId];
+  const to = knowledge.stars[mission.toStarId];
+  return Boolean(from && to && from.state !== "catalog-only" && to.state !== "catalog-only");
+}
+
+function nearestStarId(origin: { x: number; y: number }, candidates: Array<{ id: StarId; x: number; y: number }>): StarId | undefined {
   let nearest: { id: StarId; score: number } | undefined;
   for (const candidate of candidates) {
     const score = distance(origin, candidate);
@@ -555,8 +758,30 @@ function nearestStarId(origin: StarTruth, candidates: Array<{ id: StarId; x: num
   return nearest?.id;
 }
 
+function addUniqueOwner(owners: Owner[] | undefined, owner: Owner): Owner[] {
+  const next = owners ? [...owners] : [];
+  if (!next.includes(owner)) {
+    next.push(owner);
+  }
+  return next;
+}
+
+function missionLabel(kind: MissionKind): string {
+  if (kind === "missile") {
+    return "missile";
+  }
+  return `${kind} mission`;
+}
+
 function distance(a: { x: number; y: number }, b: { x: number; y: number }): number {
   return Math.hypot(a.x - b.x, a.y - b.y);
+}
+
+function progress(now: number, start: number, end: number): number {
+  if (end <= start) {
+    return 1;
+  }
+  return Math.max(0, Math.min(1, (now - start) / (end - start)));
 }
 
 function formatYears(years: number): string {
